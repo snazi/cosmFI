@@ -7,7 +7,8 @@ use cosmwasm_std::{
 
 use crate::{
     AllNftInfoResponse, Approval, ApprovedForAllResponse, ContractInfoResponse, Cw721HandleMsg,
-    Cw721QueryMsg, NftInfoResponse, NumTokensResponse, OwnerOfResponse, TokensResponse,
+    Cw721QueryMsg, NftInfoResponse, OwnerOfResponse,
+    NumTokensResponse, TokensResponse,
 };
 
 /// Cw721Contract is a wrapper around HumanAddr that provides a lot of helpers
@@ -80,8 +81,20 @@ impl Cw721Contract {
         Ok(res.operators)
     }
 
-    pub fn num_tokens<Q: Querier>(&self, querier: &Q) -> StdResult<u64> {
-        let req = Cw721QueryMsg::NumTokens {};
+    pub fn base_tokens<Q: Querier>(&self, querier: &Q) -> StdResult<u64> {
+        let req = Cw721QueryMsg::BaseTokens {};
+        let res: NumTokensResponse = self.query(querier, req)?;
+        Ok(res.count)
+    }
+
+    pub fn silver_tokens<Q: Querier>(&self, querier: &Q) -> StdResult<u64> {
+        let req = Cw721QueryMsg::SilverTokens {};
+        let res: NumTokensResponse = self.query(querier, req)?;
+        Ok(res.count)
+    }
+
+    pub fn gold_tokens<Q: Querier>(&self, querier: &Q) -> StdResult<u64> {
+        let req = Cw721QueryMsg::GoldTokens {};
         let res: NumTokensResponse = self.query(querier, req)?;
         Ok(res.count)
     }
@@ -117,14 +130,14 @@ impl Cw721Contract {
     }
 
     /// With enumerable extension
-    pub fn tokens<Q: Querier, T: Into<HumanAddr>>(
+    pub fn list_base_tokens<Q: Querier, T: Into<HumanAddr>>(
         &self,
         querier: &Q,
         owner: T,
         start_after: Option<String>,
         limit: Option<u32>,
     ) -> StdResult<TokensResponse> {
-        let req = Cw721QueryMsg::Tokens {
+        let req = Cw721QueryMsg::ListBaseTokens {
             owner: owner.into(),
             start_after,
             limit,
@@ -133,13 +146,67 @@ impl Cw721Contract {
     }
 
     /// With enumerable extension
-    pub fn all_tokens<Q: Querier>(
+    pub fn all_base_tokens<Q: Querier>(
         &self,
         querier: &Q,
         start_after: Option<String>,
         limit: Option<u32>,
     ) -> StdResult<TokensResponse> {
-        let req = Cw721QueryMsg::AllTokens { start_after, limit };
+        let req = Cw721QueryMsg::AllBaseTokens { start_after, limit };
+        self.query(querier, req)
+    }
+
+    /// With enumerable extension
+    pub fn list_silver_tokens<Q: Querier, T: Into<HumanAddr>>(
+        &self,
+        querier: &Q,
+        owner: T,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    ) -> StdResult<TokensResponse> {
+        let req = Cw721QueryMsg::ListSilverTokens {
+            owner: owner.into(),
+            start_after,
+            limit,
+        };
+        self.query(querier, req)
+    }
+
+    /// With enumerable extension
+    pub fn all_silver_tokens<Q: Querier>(
+        &self,
+        querier: &Q,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    ) -> StdResult<TokensResponse> {
+        let req = Cw721QueryMsg::AllSilverTokens { start_after, limit };
+        self.query(querier, req)
+    }
+
+    /// With enumerable extension
+    pub fn list_gold_tokens<Q: Querier, T: Into<HumanAddr>>(
+        &self,
+        querier: &Q,
+        owner: T,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    ) -> StdResult<TokensResponse> {
+        let req = Cw721QueryMsg::ListGoldTokens {
+            owner: owner.into(),
+            start_after,
+            limit,
+        };
+        self.query(querier, req)
+    }
+
+    /// With enumerable extension
+    pub fn all_gold_tokens<Q: Querier>(
+        &self,
+        querier: &Q,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    ) -> StdResult<TokensResponse> {
+        let req = Cw721QueryMsg::AllGoldTokens { start_after, limit };
         self.query(querier, req)
     }
 
@@ -149,8 +216,16 @@ impl Cw721Contract {
     }
 
     /// returns true if the contract supports the enumerable extension
-    pub fn has_enumerable<Q: Querier>(&self, querier: &Q) -> bool {
-        self.tokens(querier, self.addr(), None, Some(1)).is_ok()
+    pub fn has_base_enumerable<Q: Querier>(&self, querier: &Q) -> bool {
+        self.list_base_tokens(querier, self.addr(), None, Some(1)).is_ok()
+    }
+
+    pub fn has_silver_enumerable<Q: Querier>(&self, querier: &Q) -> bool {
+        self.list_silver_tokens(querier, self.addr(), None, Some(1)).is_ok()
+    }
+
+    pub fn has_gold_enumerable<Q: Querier>(&self, querier: &Q) -> bool {
+        self.list_gold_tokens(querier, self.addr(), None, Some(1)).is_ok()
     }
 }
 

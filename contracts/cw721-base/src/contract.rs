@@ -1,19 +1,22 @@
 use cosmwasm_std::{
     from_binary, log, to_binary, Api, Binary, CosmosMsg, Env, Extern, HandleResponse, HumanAddr,
-    InitResponse, Order, Querier, StdError, StdResult, Storage,
+    InitResponse, Order, Querier, StdError, StdResult, Storage, WasmMsg, Uint128,
 };
 
 use cw0::{calc_range_start_human, calc_range_start_string};
 use cw2::set_contract_version;
 use cw721::{
-    AllNftInfoResponse, ApprovedForAllResponse, ContractInfoResponse, Expiration, NftInfoResponse,
-    NumTokensResponse, OwnerOfResponse, TokensResponse,
+    AllNftInfoResponse, ApprovedForAllResponse, Expiration, NftInfoResponse, OwnerOfResponse,
+    NumTokensResponse, TokensResponse,
 };
 
 use crate::msg::{HandleMsg, InitMsg, MinterResponse, QueryMsg};
 use crate::state::{
-    contract_info, contract_info_read, increment_tokens, mint, mint_read, num_tokens, operators,
-    operators_read, tokens, tokens_read, Approval, TokenInfo,
+    contract_info, contract_info_read, mint, mint_read, operators,
+    operators_read, tokens, tokens_read, Approval, TokenInfo, ContractInfo,
+    base_num_tokens, increment_base_tokens,
+    silver_num_tokens, increment_silver_tokens,
+    gold_num_tokens, increment_gold_tokens,
 };
 
 // version info for migration info
@@ -27,9 +30,12 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<InitResponse> {
     set_contract_version(&mut deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let info = ContractInfoResponse {
+    let info = ContractInfo {
         name: msg.name,
         symbol: msg.symbol,
+        base_cap: msg.base_cap,
+        silver_cap: msg.silver_cap,
+        gold_cap: msg.gold_cap,
     };
     contract_info(&mut deps.storage).save(&info)?;
     let minter = deps.api.canonical_address(&msg.minter)?;
@@ -44,12 +50,21 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     match msg {
         HandleMsg::Mint {
-            token_id,
             owner,
-            name,
-            description,
-            image,
-        } => handle_mint(deps, env, token_id, owner, name, description, image),
+            rank
+        } => handle_mint(deps, env, owner, rank),
+        HandleMsg::BaseToSilver {
+            base_1,
+            base_2,
+            base_3,
+        } => handle_base_to_silver(deps, env, base_1, base_2, base_3),
+        HandleMsg::SilverToGold {
+            silver_1,
+            silver_2,
+            silver_3,
+            silver_4,
+            silver_5,
+        } => handle_silver_to_gold(deps, env, silver_1, silver_2, silver_3, silver_4, silver_5),
         HandleMsg::Approve {
             spender,
             token_id,
@@ -69,39 +84,56 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             token_id,
             msg,
         } => handle_send_nft(deps, env, contract, token_id, msg),
+        HandleMsg::UpdateMinter {
+            minter,
+        } => handle_update_minter(deps, env, minter),
     }
 }
 
 pub fn handle_mint<S: Storage, A: Api, Q: Querier>(
     deps: &mut Extern<S, A, Q>,
     env: Env,
-    token_id: String,
     owner: HumanAddr,
-    name: String,
-    description: Option<String>,
-    image: Option<String>,
+    rank: String,
 ) -> StdResult<HandleResponse> {
+    let rank_copy_1 = rank.clone();
+    let rank_copy_2 = rank.clone();
+    let rank_copy_3 = rank.clone();
     let minter = mint(&mut deps.storage).load()?;
     let sender_raw = deps.api.canonical_address(&env.message.sender)?;
 
     if sender_raw != minter {
-        return Err(StdError::unauthorized());
-    }
+        if sender_raw !=  deps.api.canonical_address(&env.contract.address)? {
+            return Err(StdError::unauthorized());
+        }
+    } 
 
     // create the token
     let token = TokenInfo {
         owner: deps.api.canonical_address(&owner)?,
         approvals: vec![],
-        name,
-        description: description.unwrap_or_default(),
-        image,
+        rank,
     };
+
+    if !query_mintable(deps, rank_copy_1).unwrap() {
+        return Err(StdError::generic_err("Minting cannot exceed the cap"))
+    }
+
+    // generate a token id based on rank
+    let token_id = generate_token_id(deps, rank_copy_2).unwrap();
+
     tokens(&mut deps.storage).update(token_id.as_bytes(), |old| match old {
         Some(_) => Err(StdError::generic_err("token_id already claimed")),
         None => Ok(token),
     })?;
 
-    increment_tokens(&mut deps.storage)?;
+    if rank_copy_3.eq("S"){
+        increment_silver_tokens(&mut deps.storage)?;
+    } else if rank_copy_3.eq("G"){
+        increment_gold_tokens(&mut deps.storage)?;
+    } else  {
+        increment_base_tokens(&mut deps.storage)?;
+    }
 
     Ok(HandleResponse {
         messages: vec![],
@@ -109,6 +141,120 @@ pub fn handle_mint<S: Storage, A: Api, Q: Querier>(
             log("action", "mint"),
             log("minter", env.message.sender),
             log("token_id", token_id),
+            log("rank", rank_copy_3),
+        ],
+        data: None,
+    })
+}
+
+pub fn handle_update_minter<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    minter: HumanAddr,
+) -> StdResult<HandleResponse> {
+    let prev_minter = mint(&mut deps.storage).load()?;
+    let sender_raw = deps.api.canonical_address(&env.message.sender)?;
+
+    if sender_raw != prev_minter {
+        return Err(StdError::unauthorized());
+    }
+
+    let new_minter = deps.api.canonical_address(&minter)?;
+    mint(&mut deps.storage).save(&new_minter)?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![
+            log("action", "update_minter"),
+            log("minter", env.message.sender),
+        ],
+        data: None,
+    })
+}
+
+pub fn handle_base_to_silver<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    base_1: String,
+    base_2: String,
+    base_3: String,
+) -> StdResult<HandleResponse> {
+    let sender_raw = deps.api.canonical_address(&env.message.sender)?;
+    let sender = deps.api.human_address(&sender_raw)?;
+
+    // the contract address is used as the burn address
+    _transfer_nft(deps, &env, &env.contract.address, &base_1)?;
+    _transfer_nft(deps, &env, &env.contract.address, &base_2)?;
+    _transfer_nft(deps, &env, &env.contract.address, &base_3)?;
+
+    // create msg for minting
+    let mint_msg = HandleMsg::Mint {
+        owner: sender.clone(), 
+        rank: "S".into()
+    };
+
+    // Have the contract execute the mint function since the sender is not authorized to mint
+    let _mint_response = StdResult::<CosmosMsg>::from(Ok(WasmMsg::Execute {
+        contract_addr: env.contract.address,
+        msg: to_binary(&mint_msg).unwrap(),
+        send: vec![],
+    }.into()))?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![
+            log("action", "base_to_gold"),
+            log("sender", &sender),
+            log("base_1", base_1),
+            log("base_2", base_2),
+            log("base_3", base_3),
+        ],
+        data: None,
+    })
+}
+
+pub fn handle_silver_to_gold<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    silver_1: String,
+    silver_2: String,
+    silver_3: String,
+    silver_4: String,
+    silver_5: String,
+) -> StdResult<HandleResponse> {
+    let sender_raw = deps.api.canonical_address(&env.message.sender)?;
+    let sender = deps.api.human_address(&sender_raw)?;
+
+    // the contract address is used as the burn address
+    _transfer_nft(deps, &env, &env.contract.address, &silver_1)?;
+    _transfer_nft(deps, &env, &env.contract.address, &silver_2)?;
+    _transfer_nft(deps, &env, &env.contract.address, &silver_3)?;
+    _transfer_nft(deps, &env, &env.contract.address, &silver_4)?;
+    _transfer_nft(deps, &env, &env.contract.address, &silver_5)?;
+
+    // create msg for minting
+    let mint_msg = HandleMsg::Mint {
+        owner: sender.clone(), 
+        rank: "G".into()
+    };
+
+    // Have the contract execute the mint function since the sender is not authorized to mint
+    let _mint_response = StdResult::<CosmosMsg>::from(Ok(WasmMsg::Execute {
+        contract_addr: env.contract.address,
+        msg: to_binary(&mint_msg).unwrap(),
+        send: vec![],
+    }.into()))?;
+
+    Ok(HandleResponse {
+        messages: vec![],
+        log: vec![
+            log("action", "base_to_gold"),
+            log("sender", &sender),
+            log("silver_1", silver_1),
+            log("silver_2", silver_2),
+            log("silver_3", silver_3),
+            log("silver_4", silver_4),
+            log("silver_5", silver_5),
         ],
         data: None,
     })
@@ -171,7 +317,7 @@ pub fn _transfer_nft<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<TokenInfo> {
     let mut token = tokens(&mut deps.storage).load(token_id.as_bytes())?;
     // ensure we have permissions
-    check_can_send(&deps, env, &token)?;
+    check_ownership(&deps, env, &token)?;
     // set owner and remove existing approvals
     token.owner = deps.api.canonical_address(recipient)?;
     token.approvals = vec![];
@@ -338,7 +484,7 @@ fn check_can_approve<S: Storage, A: Api, Q: Querier>(
 }
 
 /// returns true iff the sender can transfer ownership of the token
-fn check_can_send<S: Storage, A: Api, Q: Querier>(
+fn check_ownership<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     env: &Env,
     token: &TokenInfo,
@@ -346,6 +492,11 @@ fn check_can_send<S: Storage, A: Api, Q: Querier>(
     // owner can send
     let sender_raw = deps.api.canonical_address(&env.message.sender)?;
     if token.owner == sender_raw {
+        return Ok(());
+    }
+
+    // contract address can send
+    if env.contract.address == env.message.sender {
         return Ok(());
     }
 
@@ -372,6 +523,37 @@ fn check_can_send<S: Storage, A: Api, Q: Querier>(
     }
 }
 
+fn generate_token_id<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    rank: String,
+) -> StdResult<String> {
+
+    let contract_info = query_contract_info(&deps).unwrap();
+    let mut token_id: String = contract_info.symbol.to_owned();
+
+    if rank.eq("S"){
+        let rank_string: &str = "S";
+        let silver_count = query_silver_tokens(&deps).unwrap().count + 1;
+
+        token_id.push_str(rank_string);
+        token_id.push_str(&silver_count.to_string());
+    } else if rank.eq("G"){
+        let rank_string: &str = "G";
+        let gold_count = query_gold_tokens(&deps).unwrap().count + 1;
+
+        token_id.push_str(rank_string);
+        token_id.push_str(&gold_count.to_string());
+    } else  {
+        let rank_string: &str = "B";
+        let base_count = query_base_tokens(&deps).unwrap().count + 1;
+
+        token_id.push_str(rank_string);
+        token_id.push_str(&base_count.to_string());
+    }
+
+    Ok(token_id)
+}
+
 pub fn query<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     msg: QueryMsg,
@@ -387,11 +569,51 @@ pub fn query<S: Storage, A: Api, Q: Querier>(
             start_after,
             limit,
         } => to_binary(&query_all_approvals(deps, owner, start_after, limit)?),
-        QueryMsg::NumTokens {} => to_binary(&query_num_tokens(deps)?),
-        QueryMsg::AllTokens { start_after, limit } => {
-            to_binary(&query_all_tokens(deps, start_after, limit)?)
+        QueryMsg::BaseTokens {} => to_binary(&query_base_tokens(deps)?),
+        QueryMsg::AllBaseTokens { start_after, limit } => {
+            to_binary(&query_all_base_tokens(deps, start_after, limit)?)
+        },
+        QueryMsg::SilverTokens {} => to_binary(&query_silver_tokens(deps)?),
+        QueryMsg::AllSilverTokens { start_after, limit } => {
+            to_binary(&query_all_silver_tokens(deps, start_after, limit)?)
+        },
+        QueryMsg::GoldTokens {} => to_binary(&query_gold_tokens(deps)?),
+        QueryMsg::AllGoldTokens { start_after, limit } => {
+            to_binary(&query_all_gold_tokens(deps, start_after, limit)?)
+        },
+        QueryMsg::IsMintable { rank } => to_binary(&query_mintable(deps, rank)?),
+    }
+}
+
+fn query_mintable<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    rank: String,
+) -> StdResult<bool> {
+
+    let contract_info = query_contract_info(&deps).unwrap();
+    let mut is_mintable = true;
+
+    if rank.eq("S"){
+        let silver_count = query_silver_tokens(&deps).unwrap();
+
+        if Uint128::from(silver_count.count) == contract_info.silver_cap {
+            is_mintable = false
+        }
+    } else if rank.eq("G"){
+        let gold_count = query_gold_tokens(&deps).unwrap();
+
+        if Uint128::from(gold_count.count) == contract_info.gold_cap {
+            is_mintable = false
+        }
+    } else  {
+        let base_count = query_base_tokens(&deps).unwrap();
+
+        if Uint128::from(base_count.count) == contract_info.base_cap {
+            is_mintable = false
         }
     }
+
+    Ok(is_mintable)
 }
 
 fn query_minter<S: Storage, A: Api, Q: Querier>(
@@ -404,14 +626,28 @@ fn query_minter<S: Storage, A: Api, Q: Querier>(
 
 fn query_contract_info<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
-) -> StdResult<ContractInfoResponse> {
+) -> StdResult<ContractInfo> {
     contract_info_read(&deps.storage).load()
 }
 
-fn query_num_tokens<S: Storage, A: Api, Q: Querier>(
+fn query_base_tokens<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
 ) -> StdResult<NumTokensResponse> {
-    let count = num_tokens(&deps.storage)?;
+    let count = base_num_tokens(&deps.storage)?;
+    Ok(NumTokensResponse { count })
+}
+
+fn query_silver_tokens<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+) -> StdResult<NumTokensResponse> {
+    let count = silver_num_tokens(&deps.storage)?;
+    Ok(NumTokensResponse { count })
+}
+
+fn query_gold_tokens<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+) -> StdResult<NumTokensResponse> {
+    let count = gold_num_tokens(&deps.storage)?;
     Ok(NumTokensResponse { count })
 }
 
@@ -421,9 +657,7 @@ fn query_nft_info<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<NftInfoResponse> {
     let info = tokens_read(&deps.storage).load(token_id.as_bytes())?;
     Ok(NftInfoResponse {
-        name: info.name,
-        description: info.description,
-        image: info.image,
+        rank: info.rank,
     })
 }
 
@@ -466,7 +700,39 @@ fn query_all_approvals<S: Storage, A: Api, Q: Querier>(
     Ok(ApprovedForAllResponse { operators: res? })
 }
 
-fn query_all_tokens<S: Storage, A: Api, Q: Querier>(
+fn query_all_base_tokens<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<TokensResponse> {
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+    let start = calc_range_start_string(start_after);
+
+    let tokens: StdResult<Vec<String>> = tokens_read(&deps.storage)
+        .range(start.as_deref(), None, Order::Ascending)
+        .take(limit)
+        .map(|item| item.map(|(k, _)| String::from_utf8_lossy(&k).to_string()))
+        .collect();
+    Ok(TokensResponse { tokens: tokens? })
+}
+
+fn query_all_silver_tokens<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<TokensResponse> {
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+    let start = calc_range_start_string(start_after);
+
+    let tokens: StdResult<Vec<String>> = tokens_read(&deps.storage)
+        .range(start.as_deref(), None, Order::Ascending)
+        .take(limit)
+        .map(|item| item.map(|(k, _)| String::from_utf8_lossy(&k).to_string()))
+        .collect();
+    Ok(TokensResponse { tokens: tokens? })
+}
+
+fn query_all_gold_tokens<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
     start_after: Option<String>,
     limit: Option<u32>,
@@ -493,9 +759,7 @@ fn query_all_nft_info<S: Storage, A: Api, Q: Querier>(
             approvals: humanize_approvals(deps.api, &info)?,
         },
         info: NftInfoResponse {
-            name: info.name,
-            description: info.description,
-            image: info.image,
+            rank: info.rank,
         },
     })
 }
@@ -514,23 +778,30 @@ fn humanize_approval<A: Api>(api: A, approval: &Approval) -> StdResult<cw721::Ap
     })
 }
 
+
 #[cfg(test)]
 mod tests {
     use cosmwasm_std::testing::{mock_dependencies, mock_env};
-    use cosmwasm_std::{StdError, WasmMsg};
+    use cosmwasm_std::{StdError, WasmMsg, Uint128};
 
     use super::*;
     use cw721::ApprovedForAllResponse;
 
-    const MINTER: &str = "merlin";
-    const CONTRACT_NAME: &str = "Magic Power";
-    const SYMBOL: &str = "MGK";
+    const MINTER: &str = "cosmos2contract";
+    const CONTRACT_NAME: &str = "Lebron Token";
+    const SYMBOL: &str = "LBJ";
+    const BASE_CAP: Uint128 = Uint128(2);
+    const SILVER_CAP: Uint128 = Uint128(2);
+    const GOLD_CAP: Uint128 = Uint128(2);
 
     fn setup_contract<S: Storage, A: Api, Q: Querier>(deps: &mut Extern<S, A, Q>) {
         let msg = InitMsg {
             name: CONTRACT_NAME.to_string(),
             symbol: SYMBOL.to_string(),
             minter: MINTER.into(),
+            base_cap: BASE_CAP,
+            silver_cap: SILVER_CAP,
+            gold_cap: GOLD_CAP,
         };
         let env = mock_env("creator", &[]);
         let res = init(deps, env, msg).unwrap();
@@ -545,6 +816,9 @@ mod tests {
             name: CONTRACT_NAME.to_string(),
             symbol: SYMBOL.to_string(),
             minter: MINTER.into(),
+            base_cap: BASE_CAP,
+            silver_cap: SILVER_CAP,
+            gold_cap: GOLD_CAP,
         };
         let env = mock_env("creator", &[]);
 
@@ -558,35 +832,42 @@ mod tests {
         let info = query_contract_info(&deps).unwrap();
         assert_eq!(
             info,
-            ContractInfoResponse {
+            ContractInfo {
                 name: CONTRACT_NAME.to_string(),
                 symbol: SYMBOL.to_string(),
+                base_cap: BASE_CAP,
+                silver_cap: SILVER_CAP,
+                gold_cap: GOLD_CAP,
             }
         );
 
-        let count = query_num_tokens(&deps).unwrap();
+        let count = query_base_tokens(&deps).unwrap();
         assert_eq!(0, count.count);
 
         // list the token_ids
-        let tokens = query_all_tokens(&deps, None, None).unwrap();
+        let tokens = query_all_base_tokens(&deps, None, None).unwrap();
         assert_eq!(0, tokens.tokens.len());
     }
 
     #[test]
     fn minting() {
-        let mut deps = mock_dependencies(20, &[]);
+        let mut deps = mock_dependencies(100, &[]);
         setup_contract(&mut deps);
 
         let token_id = "petrify".to_string();
-        let name = "Petrify with Gaze".to_string();
-        let description = "Allows the owner to petrify anyone looking at him or her".to_string();
+        let token_id2 = "second".to_string();
+        //let token_id3 = "cap".to_string();
+        // let name = "Petrify with Gaze".to_string();
+        // let description = "Allows the owner to petrify anyone looking at him or her".to_string();
+        let rank = "base".to_string();
 
         let mint_msg = HandleMsg::Mint {
-            token_id: token_id.clone(),
+            //token_id: token_id.clone(),
             owner: "medusa".into(),
-            name: name.clone(),
-            description: Some(description.clone()),
-            image: None,
+            // name: name.clone(),
+            // description: Some(description.clone()),
+            // image: None,
+            rank: rank.clone(),
         };
 
         // random cannot mint
@@ -602,7 +883,7 @@ mod tests {
         let _ = handle(&mut deps, allowed, mint_msg.clone()).unwrap();
 
         // ensure num tokens increases
-        let count = query_num_tokens(&deps).unwrap();
+        let count = query_base_tokens(&deps).unwrap();
         assert_eq!(1, count.count);
 
         // unknown nft returns error
@@ -613,9 +894,10 @@ mod tests {
         assert_eq!(
             info,
             NftInfoResponse {
-                name: name.clone(),
-                description: description.clone(),
-                image: None,
+                // name: name.clone(),
+                // description: description.clone(),
+                // image: None,
+                rank: rank.clone(),
             }
         );
 
@@ -631,11 +913,12 @@ mod tests {
 
         // Cannot mint same token_id again
         let mint_msg2 = HandleMsg::Mint {
-            token_id: token_id.clone(),
+            //token_id: token_id.clone(),
             owner: "hercules".into(),
-            name: "copy cat".into(),
-            description: None,
-            image: None,
+            // name: "copy cat".into(),
+            // description: None,
+            // image: None,
+            rank: "base".into(),
         };
 
         let allowed = mock_env(MINTER, &[]);
@@ -647,28 +930,74 @@ mod tests {
             e => panic!("unexpected error: {}", e),
         }
 
+        let mint_msg3 = HandleMsg::Mint {
+            //token_id: token_id2.clone(),
+            owner: "hercules".into(),
+            // name: "below cap".into(),
+            // description: None,
+            // image: None,
+            rank: "base".into(),
+        };
+        let allowed = mock_env(MINTER, &[]);
+        let _ = handle(&mut deps, allowed, mint_msg3).unwrap();
+
+        // Cannot mint more than the cap
+        let mint_msg4 = HandleMsg::Mint {
+            //token_id: token_id3.clone(),
+            owner: "hercules".into(),
+            // name: "over the cap".into(),
+            // description: None,
+            // image: None,
+            rank: "base".into(),
+        };
+        let allowed = mock_env(MINTER, &[]);
+        let err = handle(&mut deps, allowed, mint_msg4).unwrap_err();
+        match err {
+            StdError::GenericErr { msg, .. } => {
+                assert_eq!(msg.as_str(), "Minting cannot exceed the cap")
+            }
+            e => panic!("unexpected error: {}", e),
+        }
+
         // list the token_ids
-        let tokens = query_all_tokens(&deps, None, None).unwrap();
-        assert_eq!(1, tokens.tokens.len());
-        assert_eq!(vec![token_id], tokens.tokens);
+        let tokens = query_all_base_tokens(&deps, None, None).unwrap();
+        assert_eq!(2, tokens.tokens.len());
+        assert_eq!(vec![token_id.clone(), token_id2.clone()], tokens.tokens);
+
+        
+        // list the number of tokens
+        // burnt token must be deducted to the number of tokens
+        let num_tokens = query_base_tokens(&deps).unwrap();
+        assert_eq!(1, num_tokens.count);
+
+        // burnt token is now owned by the burn address
+        let owner = query_owner_of(&deps, token_id2.clone()).unwrap();
+        assert_eq!(
+            owner,
+            OwnerOfResponse {
+                owner: "terra1jrg2hv92xpjl4wwgd84jcm4cs2pfmzdxl6y2sx".into(),
+                approvals: vec![],
+            }
+        );
     }
 
     #[test]
-    fn transferring_nft() {
+    fn update_nft() {
         let mut deps = mock_dependencies(20, &[]);
         setup_contract(&mut deps);
 
         // Mint a token
         let token_id = "melt".to_string();
-        let name = "Melting power".to_string();
-        let description = "Allows the owner to melt anyone looking at him or her".to_string();
+        //let name = "Melting power".to_string();
+        //let description = "Allows the owner to melt anyone looking at him or her".to_string();
 
         let mint_msg = HandleMsg::Mint {
-            token_id: token_id.clone(),
+            //token_id: token_id.clone(),
             owner: "venus".into(),
-            name: name.clone(),
-            description: Some(description.clone()),
-            image: None,
+            // name: name.clone(),
+            // description: Some(description.clone()),
+            // image: None,
+            rank: "base".into()
         };
 
         let minter = mock_env(MINTER, &[]);
@@ -688,7 +1017,7 @@ mod tests {
             e => panic!("unexpected error: {}", e),
         }
 
-        // owner can
+        // owner can transfer
         let random = mock_env("venus", &[]);
         let transfer_msg = HandleMsg::TransferNft {
             recipient: "random".into(),
@@ -705,7 +1034,7 @@ mod tests {
                     log("action", "transfer_nft"),
                     log("sender", "venus"),
                     log("recipient", "random"),
-                    log("token_id", token_id),
+                    log("token_id", token_id.clone()),
                 ],
                 data: None,
             }
@@ -719,15 +1048,16 @@ mod tests {
 
         // Mint a token
         let token_id = "melt".to_string();
-        let name = "Melting power".to_string();
-        let description = "Allows the owner to melt anyone looking at him or her".to_string();
+        //let name = "Melting power".to_string();
+        //let description = "Allows the owner to melt anyone looking at him or her".to_string();
 
         let mint_msg = HandleMsg::Mint {
-            token_id: token_id.clone(),
+            //token_id: token_id.clone(),
             owner: "venus".into(),
-            name: name.clone(),
-            description: Some(description.clone()),
-            image: None,
+            // name: name.clone(),
+            // description: Some(description.clone()),
+            // image: None,
+            rank: "base".into()
         };
 
         let minter = mock_env(MINTER, &[]);
@@ -779,15 +1109,16 @@ mod tests {
 
         // Mint a token
         let token_id = "grow".to_string();
-        let name = "Growing power".to_string();
-        let description = "Allows the owner to grow anything".to_string();
+        //let name = "Growing power".to_string();
+        //let description = "Allows the owner to grow anything".to_string();
 
         let mint_msg = HandleMsg::Mint {
-            token_id: token_id.clone(),
+            //token_id: token_id.clone(),
             owner: "demeter".into(),
-            name: name.clone(),
-            description: Some(description.clone()),
-            image: None,
+            // name: name.clone(),
+            // description: Some(description.clone()),
+            // image: None,
+            rank: "base".into()
         };
 
         let minter = mock_env(MINTER, &[]);
@@ -869,38 +1200,40 @@ mod tests {
 
         // Mint a couple tokens (from the same owner)
         let token_id1 = "grow1".to_string();
-        let name1 = "Growing power".to_string();
-        let description1 = "Allows the owner the power to grow anything".to_string();
+        //let name1 = "Growing power".to_string();
+        //let description1 = "Allows the owner the power to grow anything".to_string();
         let token_id2 = "grow2".to_string();
-        let name2 = "More growing power".to_string();
-        let description2 = "Allows the owner the power to grow anything even faster".to_string();
+        //let name2 = "More growing power".to_string();
+        //let description2 = "Allows the owner the power to grow anything even faster".to_string();
 
         let mint_msg1 = HandleMsg::Mint {
-            token_id: token_id1.clone(),
+            //token_id: token_id1.clone(),
             owner: "demeter".into(),
-            name: name1.clone(),
-            description: Some(description1.clone()),
-            image: None,
+            // name: name1.clone(),
+            // description: Some(description1.clone()),
+            // image: None,
+            rank: "base".into()
         };
 
         let minter = mock_env(MINTER, &[]);
         handle(&mut deps, minter.clone(), mint_msg1).unwrap();
 
         let mint_msg2 = HandleMsg::Mint {
-            token_id: token_id2.clone(),
+            //token_id: token_id2.clone(),
             owner: "demeter".into(),
-            name: name2.clone(),
-            description: Some(description2.clone()),
-            image: None,
+            // name: name2.clone(),
+            // description: Some(description2.clone()),
+            // image: None,
+            rank: "base".into()
         };
 
         handle(&mut deps, minter, mint_msg2).unwrap();
 
         // paginate the token_ids
-        let tokens = query_all_tokens(&deps, None, Some(1)).unwrap();
+        let tokens = query_all_base_tokens(&deps, None, Some(1)).unwrap();
         assert_eq!(1, tokens.tokens.len());
         assert_eq!(vec![token_id1.clone()], tokens.tokens);
-        let tokens = query_all_tokens(&deps, Some(token_id1.clone()), Some(3)).unwrap();
+        let tokens = query_all_base_tokens(&deps, Some(token_id1.clone()), Some(3)).unwrap();
         assert_eq!(1, tokens.tokens.len());
         assert_eq!(vec![token_id2.clone()], tokens.tokens);
 

@@ -7,7 +7,7 @@ use cw721::{
     AllNftInfoResponse, ApprovedForAllResponse, ContractInfoResponse, NftInfoResponse, OwnerOfResponse,
     NumTokensResponse, TokensResponse,
 };
-use cw721_base::msg::{HandleMsg, InitMsg, MinterResponse, QueryMsg};
+use fantasy::msg::{HandleMsg, InitMsg, QueryMsg};
 
 fn main() {
     let mut out_dir = current_dir().unwrap();
@@ -21,7 +21,6 @@ fn main() {
     export_schema(&schema_for!(AllNftInfoResponse), &out_dir);
     export_schema(&schema_for!(ApprovedForAllResponse), &out_dir);
     export_schema(&schema_for!(ContractInfoResponse), &out_dir);
-    export_schema(&schema_for!(MinterResponse), &out_dir);
     export_schema(&schema_for!(NftInfoResponse), &out_dir);
     export_schema(&schema_for!(OwnerOfResponse), &out_dir);
     export_schema(&schema_for!(NumTokensResponse), &out_dir);

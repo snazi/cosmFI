@@ -1,4 +1,4 @@
-use cosmwasm_std::{Binary, HumanAddr};
+use cosmwasm_std::{Binary, HumanAddr, Uint128};
 use cw721::Expiration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,13 @@ pub struct InitMsg {
     /// This is designed for a base NFT that is controlled by an external program
     /// or contract. You will likely replace this with custom logic in custom NFTs
     pub minter: HumanAddr,
+
+    // Maximum number of base tokens
+    pub base_cap: Uint128,
+    // Maximum number of silver tokens
+    pub silver_cap: Uint128,
+    // Maximum number of gold tokens
+    pub gold_cap: Uint128,
 }
 
 /// This is like Cw721HandleMsg but we add a Mint command for an owner
@@ -55,19 +62,37 @@ pub enum HandleMsg {
     /// Remove previously granted ApproveAll permission
     RevokeAll { operator: HumanAddr },
 
+    /// Converts Base NFTs to Silver Rank
+    BaseToSilver {
+        /// NFTs to Burn
+        base_1: String,
+        base_2: String,
+        base_3: String,
+    },
+
+    /// Converts Silver NFTs to Gold Rank
+    SilverToGold {
+        /// NFTs to Burn
+        silver_1: String,
+        silver_2: String,
+        silver_3: String,
+        silver_4: String,
+        silver_5: String,
+    },
+
     /// Mint a new NFT, can only be called by the contract minter
     Mint {
-        /// Unique ID of the NFT
-        token_id: String,
         /// The owner of the newly minter NFT
         owner: HumanAddr,
-        /// Identifies the asset to which this NFT represents
-        name: String,
-        /// Describes the asset to which this NFT represents (may be empty)
-        description: Option<String>,
-        /// A URI pointing to an image representing the asset
-        image: Option<String>,
+        /// Describes the rank of the NFT 
+        rank: String,
     },
+    
+    /// Change the minter for the token, can only be called by the current minter
+    UpdateMinter {
+        /// Address of the new minter
+        minter: HumanAddr,
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -85,8 +110,30 @@ pub enum QueryMsg {
         start_after: Option<HumanAddr>,
         limit: Option<u32>,
     },
-    /// Total number of tokens issued
-    NumTokens {},
+
+    /// Total number of base tokens issued
+    BaseTokens {},
+    /// With Enumerable extension.
+    /// Requires pagination. Lists all token_ids controlled by the contract.
+    /// Return type: TokensResponse.
+    AllBaseTokens {
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+
+    /// Total number of silver tokens issued
+    SilverTokens {},
+    AllSilverTokens {
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+
+    /// Total number of gold tokens issued
+    GoldTokens {},
+    AllGoldTokens {
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
 
     /// With MetaData Extension.
     /// Returns top-level metadata about the contract: `ContractInfoResponse`
@@ -103,17 +150,12 @@ pub enum QueryMsg {
     AllNftInfo {
         token_id: String,
     },
-
-    /// With Enumerable extension.
-    /// Requires pagination. Lists all token_ids controlled by the contract.
-    /// Return type: TokensResponse.
-    AllTokens {
-        start_after: Option<String>,
-        limit: Option<u32>,
-    },
-
     // Return the minter
     Minter {},
+    // Returns a boolean determining if the base token is mintable
+    IsMintable {
+        rank: String,
+    },
 }
 
 /// Shows who can mint these tokens

@@ -1,35 +1,41 @@
 [package]
-name = "cw20-base"
+name = "fantasy"
 version = "0.2.3"
 authors = ["Ethan Frey <ethanfrey@users.noreply.github.com>"]
 edition = "2018"
-description = "Basic implementation of a CosmWasm-20 compliant token"
+description = "Basic implementation cw721 NFTs"
 license = "Apache-2.0"
 repository = "https://github.com/CosmWasm/cosmwasm-plus"
 homepage = "https://cosmwasm.com"
 documentation = "https://docs.cosmwasm.com"
 
+exclude = [
+  # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.
+  "artifacts/*",
+]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
+# for more explicit tests, cargo test --features=backtraces
 backtraces = ["cosmwasm-std/backtraces"]
 # use library feature to disable all init/handle/query exports
 library = []
 
 [dependencies]
+cosmwasm-std = { version = "0.10.1" }
+cosmwasm-storage = { version = "0.10.1", features = ["iterator"] }
 cw0 = { path = "../../packages/cw0", version = "0.2.3" }
 cw2 = { path = "../../packages/cw2", version = "0.2.3" }
+cw721 = { path = "../../packages/cw721", version = "0.2.3" }
 cw20 = { path = "../../packages/cw20", version = "0.2.3" }
-cosmwasm-std = { version = "0.10.1", features = ["iterator"] }
-cosmwasm-storage = { version = "0.10.1", features = ["iterator"] }
-terra-cosmwasm = "2.0.0"
-cosmwasm-bignumber = "2.0.0"
 schemars = "0.7"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }
 snafu = { version = "0.6.3" }
+terra-cosmwasm = { version = "1.2" }
+cosmwasm-bignumber = "1.0"
 
 [dev-dependencies]
-# we only need to enable this if we use integration tests
-#cosmwasm-vm = { version = "0.10.1", default-features = false }
 cosmwasm-schema = { version = "0.10.1" }

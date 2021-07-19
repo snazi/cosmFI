@@ -13,6 +13,7 @@ use crate::enumerable::{query_all_accounts, query_all_allowances};
 use crate::migrations::migrate_v01_to_v02;
 use crate::msg::{HandleMsg, InitMsg, MigrateMsg, QueryMsg};
 use crate::deposit::{DepositStableMsg};
+use crate::increment::{IncrementMsg};
 use crate::state::{balances, balances_read, token_info, token_info_read, MinterData, TokenInfo};
 
 // version info for migration info
@@ -83,6 +84,9 @@ pub fn handle<S: Storage, A: Api, Q: Querier>(
             amount,
             msg,
         } => handle_send(deps, env, contract, amount, msg),
+        HandleMsg::Increment {
+            contract,
+        } => handle_increment(deps, env, contract),
         HandleMsg::DepositStable {
             contract,
         } => handle_deposit(deps, env, contract),
@@ -248,12 +252,22 @@ pub fn handle_send<S: Storage, A: Api, Q: Querier>(
         Ok(balance.unwrap_or_default() + amount)
     })?;
 
+    
+    let deposit_amount: Uint128 = env
+        .message
+        .sent_funds
+        .iter()
+        .find(|c| c.denom == "uusd")
+        .map(|c| Uint128::from(c.amount))
+        .unwrap_or_else(Uint128::zero);
+
     let sender = deps.api.human_address(&sender_raw)?;
     let logs = vec![
         log("action", "send"),
         log("from", &sender),
         log("to", &contract),
         log("amount", amount),
+        log("deposit_amount", deposit_amount),
     ];
 
     // create a send message
@@ -279,14 +293,61 @@ pub fn handle_deposit<S: Storage, A: Api, Q: Querier>(
 ) -> StdResult<HandleResponse> {
     let sender_raw = deps.api.canonical_address(&env.message.sender)?;
     let sender = deps.api.human_address(&sender_raw)?;
+
+    let deposit_amount: Uint128 = env
+        .message
+        .sent_funds
+        .iter()
+        .find(|c| c.denom == "uusd")
+        .map(|c| Uint128::from(c.amount))
+        .unwrap_or_else(Uint128::zero);
+
     let logs = vec![
         log("action", "deposit"),
         log("from", &sender),
         log("to", &contract),
+        log("deposit_amount", deposit_amount),
     ];
 
     // create a send message
     let msg = DepositStableMsg {}
+    .into_cosmos_msg(contract, deposit_amount)?;
+
+
+    let res = HandleResponse {
+        messages: vec![msg],
+        log: logs,
+        data: None,
+    };
+    Ok(res)
+}
+
+
+pub fn handle_increment<S: Storage, A: Api, Q: Querier>(
+    deps: &mut Extern<S, A, Q>,
+    env: Env,
+    contract: HumanAddr
+) -> StdResult<HandleResponse> {
+    let sender_raw = deps.api.canonical_address(&env.message.sender)?;
+    let sender = deps.api.human_address(&sender_raw)?;
+
+    let deposit_amount: Uint128 = env
+        .message
+        .sent_funds
+        .iter()
+        .find(|c| c.denom == "uusd")
+        .map(|c| Uint128::from(c.amount))
+        .unwrap_or_else(Uint128::zero);
+
+    let logs = vec![
+        log("action", "deposit"),
+        log("from", &sender),
+        log("to", &contract),
+        log("deposit_amount", deposit_amount),
+    ];
+
+    // create a send message
+    let msg = IncrementMsg {}
     .into_cosmos_msg(contract)?;
 
     let res = HandleResponse {

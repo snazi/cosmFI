@@ -17,8 +17,15 @@ pub enum Cw721QueryMsg {
         start_after: Option<HumanAddr>,
         limit: Option<u32>,
     },
-    /// Total number of tokens issued
-    NumTokens {},
+
+    /// Total number of base tokens issued
+    BaseTokens {},
+
+    /// Total number of silver tokens issued
+    SilverTokens {},
+
+    /// Total number of gold tokens issued
+    GoldTokens {},
 
     /// With MetaData Extension.
     /// Returns top-level metadata about the contract: `ContractInfoResponse`
@@ -35,7 +42,7 @@ pub enum Cw721QueryMsg {
     /// With Enumerable extension.
     /// Returns all tokens owned by the given address, [] if unset.
     /// Return type: TokensResponse.
-    Tokens {
+    ListBaseTokens {
         owner: HumanAddr,
         start_after: Option<String>,
         limit: Option<u32>,
@@ -43,7 +50,29 @@ pub enum Cw721QueryMsg {
     /// With Enumerable extension.
     /// Requires pagination. Lists all token_ids controlled by the contract.
     /// Return type: TokensResponse.
-    AllTokens {
+    AllBaseTokens {
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+
+    ListSilverTokens {
+        owner: HumanAddr,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+
+    AllSilverTokens {
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+
+    ListGoldTokens {
+        owner: HumanAddr,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+
+    AllGoldTokens {
         start_after: Option<String>,
         limit: Option<u32>,
     },
@@ -71,11 +100,6 @@ pub struct ApprovedForAllResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
-pub struct NumTokensResponse {
-    pub count: u64,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
 pub struct ContractInfoResponse {
     pub name: String,
     pub symbol: String,
@@ -84,14 +108,15 @@ pub struct ContractInfoResponse {
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
 pub struct NftInfoResponse {
     /// Identifies the asset to which this NFT represents
-    pub name: String,
+    // pub name: String,
     /// Describes the asset to which this NFT represents
-    pub description: String,
+    // pub description: String,
     /// "A URI pointing to a resource with mime type image/* representing the asset to which this
     /// NFT represents. Consider making any images at a width between 320 and 1080 pixels and aspect
     /// ratio between 1.91:1 and 4:5 inclusive.
     /// TODO: Use https://docs.rs/url_serde for type-safety
-    pub image: Option<String>,
+    // pub image: Option<String>,
+    pub rank: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
@@ -100,6 +125,11 @@ pub struct AllNftInfoResponse {
     pub access: OwnerOfResponse,
     /// Data on the token itself,
     pub info: NftInfoResponse,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
+pub struct NumTokensResponse {
+    pub count: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]

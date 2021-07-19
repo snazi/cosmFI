@@ -79,6 +79,11 @@ pub enum HandleMsg {
     DepositStable {
         contract: HumanAddr,
     },
+    /// Increment is a message to trigger an action
+    /// on the receiving contract.
+    Increment {
+        contract: HumanAddr,
+    },
     /// Only with the "mintable" extension. If authorized, creates amount new tokens
     /// and adds to the recipient balance.
     Mint {

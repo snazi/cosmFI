@@ -1,6 +1,7 @@
 pub mod allowances;
 pub mod contract;
 pub mod enumerable;
+pub mod increment;
 pub mod msg;
 pub mod deposit;
 pub mod state;
